@@ -2,5 +2,8 @@ name = "mini-tds"
 main = "src/worker.ts"
 compatibility_date = "2024-04-30"
 
-[vars]
-# Example: VAR_NAME = "value"
+[[kv_namespaces]]
+binding = "CONFIG"
+# Заполните значениями namespace при инициализации
+id = ""
+preview_id = ""
