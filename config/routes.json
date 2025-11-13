@@ -1,0 +1,22 @@
+{
+  "routes": [
+    {
+      "id": "ru-mobile-casino",
+      "match": {
+        "path": ["/casino/*"],
+        "countries": ["RU", "KZ", "BY"],
+        "devices": ["mobile"]
+      },
+      "target": "https://2win.click/tds/go.cgi?4",
+      "stripPathPrefix": "/casino/",
+      "appendPath": false,
+      "forwardQuery": false,
+      "extraParams": { "src": "mini-tds" },
+      "status": 302
+    }
+  ],
+  "fallback": {
+    "status": 404,
+    "body": "Not matched"
+  }
+}
