@@ -1,0 +1,31 @@
+{
+  "countryAllowList": ["RU", "KZ", "BY"],
+  "pathRules": [
+    {
+      "pattern": "^/casino/([^/?#]+)",
+      "paramFromGroup": 1,
+      "target": {
+        "type": "query",
+        "base": "https://bookieranks.com/go",
+        "queryParam": "brand"
+      }
+    }
+  ],
+  "redirect": {
+    "statusCode": 302,
+    "preserveOriginalQuery": false,
+    "extraQuery": {
+      "src": "mobile-geo"
+    },
+    "appendCountry": true,
+    "appendDevice": true
+  },
+  "seo": {
+    "uaAllowList": ["Googlebot", "Bingbot", "DuckDuckBot"],
+    "respectNoArchive": false
+  },
+  "perf": {
+    "configTtlSeconds": 60,
+    "logSampleRate": 0.01
+  }
+}
