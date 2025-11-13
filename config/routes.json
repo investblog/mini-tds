@@ -1,0 +1,59 @@
+{
+  "routes": [
+    {
+      "id": "promo-mobile",
+      "target": "https://example.com/mobile",
+      "trackingParam": "tds_id",
+      "trackingValue": "promo-mobile",
+      "appendPath": true,
+      "forwardQuery": ["utm_source", "utm_campaign"],
+      "stripPathPrefix": "/promo",
+      "extraParams": {
+        "segment": "mobile"
+      },
+      "match": {
+        "path": ["/promo", "/promo/*"],
+        "countries": ["US", "CA"],
+        "devices": ["mobile"],
+        "query": {
+          "offer": ["1", "2", "3"]
+        }
+      }
+    },
+    {
+      "id": "default-redirect",
+      "target": "https://example.com/landing",
+      "trackingParam": "tds_id",
+      "appendPath": false,
+      "forwardQuery": true,
+      "extraParams": {
+        "segment": "default"
+      },
+      "match": {
+        "path": ["/*"],
+        "referrers": ["facebook.com", "instagram.com", "tiktok.com"]
+      }
+    },
+    {
+      "id": "bot-safety-page",
+      "response": {
+        "status": 200,
+        "body": "<!DOCTYPE html><html><head><title>Welcome</title></head><body><h1>Welcome</h1><p>Please contact support for more information.</p></body></html>",
+        "headers": {
+          "content-type": "text/html; charset=UTF-8"
+        }
+      },
+      "match": {
+        "devices": ["bot"],
+        "path": ["/*"]
+      }
+    }
+  ],
+  "fallback": {
+    "target": "https://example.com",
+    "trackingParam": "tds_id",
+    "trackingValue": "fallback",
+    "forwardQuery": false,
+    "appendPath": false
+  }
+}
