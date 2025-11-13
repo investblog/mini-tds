@@ -1,21 +1,18 @@
-interface TargetConfig {
-  type: "query" | "path";
-  base: string;
-  queryParam?: string;
+interface RouteMatchConfig {
+  path?: string[];
+  countries?: string[];
+  devices?: Array<"mobile" | "desktop">;
 }
 
-interface PathRuleConfig {
-  pattern: string;
-  paramFromGroup?: number;
-  target: TargetConfig;
-}
-
-interface RedirectConfig {
-  statusCode?: number;
-  preserveOriginalQuery?: boolean;
-  extraQuery?: Record<string, string>;
-  appendCountry?: boolean;
-  appendDevice?: boolean;
+interface RouteConfig {
+  id: string;
+  match?: RouteMatchConfig;
+  target: string;
+  stripPathPrefix?: string;
+  appendPath?: boolean;
+  forwardQuery?: boolean;
+  extraParams?: Record<string, string>;
+  status?: number;
 }
 
 interface SeoConfig {
@@ -34,10 +31,15 @@ interface FilterConfig {
   mobileUserAgentPattern?: string;
 }
 
-interface GeoRedirectConfig {
-  countryAllowList: string[];
-  pathRules: PathRuleConfig[];
-  redirect?: RedirectConfig;
+interface FallbackConfig {
+  status?: number;
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+interface RoutesConfig {
+  routes: RouteConfig[];
+  fallback?: FallbackConfig;
   seo?: SeoConfig;
   perf?: PerfConfig;
   filters?: FilterConfig;
@@ -54,7 +56,7 @@ type CfRequest = Request & {
   };
 };
 
-const DEFAULT_CONFIG_KEY = "config.json";
+const DEFAULT_CONFIG_KEY = "routes.json";
 const DEFAULT_TTL_SECONDS = 60;
 
 const DEFAULT_BOT_USER_AGENT_PATTERN =
@@ -65,14 +67,14 @@ const DEFAULT_MOBILE_USER_AGENT_PATTERN =
   "\\b(android|iphone|ipod|windows phone|opera mini|opera mobi|blackberry|bb10|silk/|kindle|webos|iemobile|samsungbrowser|miuibrowser|miui|huawei|oppo|oneplus|vivo|realme|poco|ucbrowser|crios|fxios|edgios)\\b";
 const DEFAULT_MOBILE_USER_AGENT_REGEX = new RegExp(DEFAULT_MOBILE_USER_AGENT_PATTERN, "i");
 
-const botUaRegexCache = new WeakMap<GeoRedirectConfig, RegExp>();
-const mobileUaRegexCache = new WeakMap<GeoRedirectConfig, RegExp>();
-const botAsnSetCache = new WeakMap<GeoRedirectConfig, Set<number>>();
+const botUaRegexCache = new WeakMap<RoutesConfig, RegExp>();
+const mobileUaRegexCache = new WeakMap<RoutesConfig, RegExp>();
+const botAsnSetCache = new WeakMap<RoutesConfig, Set<number>>();
 
-let cachedConfig: GeoRedirectConfig | null = null;
+let cachedConfig: RoutesConfig | null = null;
 let cacheExpiresAt = 0;
 
-async function loadConfig(env: Env): Promise<GeoRedirectConfig | null> {
+async function loadConfig(env: Env): Promise<RoutesConfig | null> {
   const now = Date.now();
   if (cachedConfig && now < cacheExpiresAt) {
     return cachedConfig;
@@ -84,7 +86,7 @@ async function loadConfig(env: Env): Promise<GeoRedirectConfig | null> {
       console.error("[tds] Config not found in KV");
       return cachedConfig;
     }
-    const parsed = JSON.parse(raw) as GeoRedirectConfig;
+    const parsed = JSON.parse(raw) as RoutesConfig;
     cachedConfig = parsed;
     const ttl = parsed.perf?.configTtlSeconds ?? DEFAULT_TTL_SECONDS;
     cacheExpiresAt = now + ttl * 1000;
@@ -95,7 +97,7 @@ async function loadConfig(env: Env): Promise<GeoRedirectConfig | null> {
   }
 }
 
-function getBotUserAgentRegex(config: GeoRedirectConfig): RegExp {
+function getBotUserAgentRegex(config: RoutesConfig): RegExp {
   const cached = botUaRegexCache.get(config);
   if (cached) {
     return cached;
@@ -114,7 +116,7 @@ function getBotUserAgentRegex(config: GeoRedirectConfig): RegExp {
   return DEFAULT_BOT_USER_AGENT_REGEX;
 }
 
-function getMobileUserAgentRegex(config: GeoRedirectConfig): RegExp {
+function getMobileUserAgentRegex(config: RoutesConfig): RegExp {
   const cached = mobileUaRegexCache.get(config);
   if (cached) {
     return cached;
@@ -133,7 +135,7 @@ function getMobileUserAgentRegex(config: GeoRedirectConfig): RegExp {
   return DEFAULT_MOBILE_USER_AGENT_REGEX;
 }
 
-function getBotAsnSet(config: GeoRedirectConfig): Set<number> {
+function getBotAsnSet(config: RoutesConfig): Set<number> {
   const cached = botAsnSetCache.get(config);
   if (cached) {
     return cached;
@@ -148,7 +150,7 @@ function getBotAsnSet(config: GeoRedirectConfig): Set<number> {
   return DEFAULT_BOT_ASN_SET;
 }
 
-function isSeoUserAgent(userAgent: string | null, config: GeoRedirectConfig): boolean {
+function isSeoUserAgent(userAgent: string | null, config: RoutesConfig): boolean {
   if (!userAgent) {
     return false;
   }
@@ -160,7 +162,7 @@ function isSeoUserAgent(userAgent: string | null, config: GeoRedirectConfig): bo
   return allowList.some((needle) => loweredAgent.includes(needle.toLowerCase()));
 }
 
-function classifyDevice(request: Request, config: GeoRedirectConfig): "mobile" | "desktop" {
+function classifyDevice(request: Request, config: RoutesConfig): "mobile" | "desktop" {
   const chMobile = request.headers.get("Sec-CH-UA-Mobile");
   if (chMobile) {
     const normalized = chMobile.trim();
@@ -190,7 +192,7 @@ function classifyDevice(request: Request, config: GeoRedirectConfig): "mobile" |
   return mobileRegex.test(userAgent) ? "mobile" : "desktop";
 }
 
-function isBotRequest(request: CfRequest, config: GeoRedirectConfig): boolean {
+function isBotRequest(request: CfRequest, config: RoutesConfig): boolean {
   const userAgent = request.headers.get("User-Agent");
   if (userAgent && getBotUserAgentRegex(config).test(userAgent)) {
     return true;
@@ -215,29 +217,71 @@ function getCountry(request: CfRequest): string | undefined {
   return country.toUpperCase();
 }
 
-function isCountryAllowed(config: GeoRedirectConfig, country: string): boolean {
-  return config.countryAllowList.some((value) => value.toUpperCase() === country);
+function matchesCountry(match: RouteMatchConfig | undefined, country: string | undefined): boolean {
+  if (!match?.countries || match.countries.length === 0) {
+    return true;
+  }
+  if (!country) {
+    return false;
+  }
+  const upper = country.toUpperCase();
+  return match.countries.some((value) => value.toUpperCase() === upper);
 }
 
-function matchPathRule(pathname: string, rules: PathRuleConfig[]): { rule: PathRuleConfig; slug: string } | null {
-  for (const rule of rules) {
-    try {
-      const regex = new RegExp(rule.pattern);
-      const match = regex.exec(pathname);
-      if (!match) {
-        continue;
-      }
-      const groupIndex = rule.paramFromGroup ?? 1;
-      const slug = match[groupIndex];
-      if (!slug) {
-        continue;
-      }
-      return { rule, slug };
-    } catch (error) {
-      console.error("[tds] Invalid path rule regex", { pattern: rule.pattern, error });
-    }
+function matchesDevice(match: RouteMatchConfig | undefined, device: "mobile" | "desktop"): boolean {
+  if (!match?.devices || match.devices.length === 0) {
+    return true;
   }
-  return null;
+  return match.devices.includes(device);
+}
+
+function wildcardMatch(pattern: string, pathname: string): boolean {
+  const normalizedPattern = pattern.startsWith("/") ? pattern : `/${pattern}`;
+  if (normalizedPattern.endsWith("*")) {
+    const prefix = normalizedPattern.slice(0, -1);
+    return pathname.startsWith(prefix);
+  }
+  return pathname === normalizedPattern;
+}
+
+function matchesPath(match: RouteMatchConfig | undefined, pathname: string): boolean {
+  if (!match?.path || match.path.length === 0) {
+    return true;
+  }
+  return match.path.some((pattern) => wildcardMatch(pattern, pathname));
+}
+
+function decodeSlug(slug: string): string {
+  if (!slug) {
+    return slug;
+  }
+  return slug
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+function extractSlug(pathname: string, stripPathPrefix: string | undefined): string {
+  if (!stripPathPrefix) {
+    return "";
+  }
+
+  const normalizedPrefix = stripPathPrefix.startsWith("/")
+    ? stripPathPrefix
+    : `/${stripPathPrefix}`;
+  if (!pathname.startsWith(normalizedPrefix)) {
+    return "";
+  }
+
+  const raw = pathname.slice(normalizedPrefix.length);
+  const trimmed = raw.replace(/^\/+/, "").replace(/\/+$/, "");
+  return decodeSlug(trimmed);
 }
 
 function appendPathSegment(basePath: string, slug: string): string {
@@ -253,51 +297,62 @@ function appendPathSegment(basePath: string, slug: string): string {
 }
 
 function buildRedirectUrl(
+  route: RouteConfig,
   requestUrl: URL,
-  slug: string,
-  country: string | undefined,
-  device: "mobile" | "desktop",
-  rule: PathRuleConfig,
-  redirectConfig: RedirectConfig | undefined
+  slug: string
 ): string {
-  const target = rule.target;
-  const url = new URL(target.base);
+  const url = new URL(route.target);
 
-  if (target.type === "path") {
+  const shouldAppendPath = route.appendPath !== false;
+  if (shouldAppendPath && slug) {
     url.pathname = appendPathSegment(url.pathname, slug);
-  } else {
-    const paramName = target.queryParam ?? "brand";
-    url.searchParams.set(paramName, slug);
+  } else if (!shouldAppendPath && route.stripPathPrefix && slug) {
+    url.searchParams.set("bonus", slug);
   }
 
-  if (redirectConfig?.preserveOriginalQuery) {
+  if (route.forwardQuery) {
     requestUrl.searchParams.forEach((value, key) => {
       url.searchParams.append(key, value);
     });
   }
 
-  if (redirectConfig?.extraQuery) {
-    for (const [key, value] of Object.entries(redirectConfig.extraQuery)) {
+  if (route.extraParams) {
+    for (const [key, value] of Object.entries(route.extraParams)) {
       url.searchParams.set(key, value);
     }
-  }
-
-  if (redirectConfig?.appendCountry && country) {
-    url.searchParams.set("country", country);
-  }
-
-  if (redirectConfig?.appendDevice) {
-    url.searchParams.set("device", device);
   }
 
   return url.toString();
 }
 
-function maybeLog(config: GeoRedirectConfig, message: string, details: Record<string, unknown>): void {
+function maybeLog(config: RoutesConfig, message: string, details: Record<string, unknown>): void {
   const rate = config.perf?.logSampleRate ?? 0;
   if (rate > 0 && Math.random() < rate) {
     console.log(`[tds] ${message}`, details);
   }
+}
+
+function findMatchingRoute(
+  config: RoutesConfig,
+  pathname: string,
+  country: string | undefined,
+  device: "mobile" | "desktop"
+): { route: RouteConfig; slug: string } | null {
+  for (const route of config.routes ?? []) {
+    if (!matchesCountry(route.match, country)) {
+      continue;
+    }
+    if (!matchesDevice(route.match, device)) {
+      continue;
+    }
+    if (!matchesPath(route.match, pathname)) {
+      continue;
+    }
+
+    const slug = extractSlug(pathname, route.stripPathPrefix);
+    return { route, slug };
+  }
+  return null;
 }
 
 const worker: ExportedHandler<Env> = {
@@ -308,18 +363,8 @@ const worker: ExportedHandler<Env> = {
     }
 
     const country = getCountry(request as CfRequest);
-    if (!country) {
-      return fetch(request);
-    }
-
-    if (!isCountryAllowed(config, country)) {
-      return fetch(request);
-    }
 
     const device = classifyDevice(request, config);
-    if (device !== "mobile") {
-      return fetch(request);
-    }
 
     if (isBotRequest(request as CfRequest, config)) {
       return fetch(request);
@@ -332,28 +377,33 @@ const worker: ExportedHandler<Env> = {
 
     const requestUrl = new URL(request.url);
     const pathname = requestUrl.pathname;
-    const match = matchPathRule(pathname, config.pathRules ?? []);
+    const match = findMatchingRoute(config, pathname, country, device);
     if (!match) {
+      if (config.fallback) {
+        const fallbackHeaders = new Headers(config.fallback.headers);
+        if (!fallbackHeaders.has("Cache-Control")) {
+          fallbackHeaders.set("Cache-Control", "no-store");
+        }
+        return new Response(config.fallback.body ?? "Not matched", {
+          status: config.fallback.status ?? 404,
+          headers: fallbackHeaders,
+        });
+      }
       return fetch(request);
     }
 
-    const redirectUrl = buildRedirectUrl(
-      requestUrl,
-      match.slug,
-      country,
-      device,
-      match.rule,
-      config.redirect
-    );
+    const redirectUrl = buildRedirectUrl(match.route, requestUrl, match.slug);
 
     maybeLog(config, "redirect", {
       country,
+      device,
+      routeId: match.route.id,
       slug: match.slug,
       target: redirectUrl,
       path: pathname,
     });
 
-    const status = config.redirect?.statusCode ?? 302;
+    const status = match.route.status ?? 302;
     const response = Response.redirect(redirectUrl, status);
     response.headers.set("Cache-Control", "no-store");
     return response;
