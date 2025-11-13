@@ -28,12 +28,19 @@ interface PerfConfig {
   logSampleRate?: number;
 }
 
+interface FilterConfig {
+  botUserAgentPattern?: string;
+  botAsnList?: number[];
+  mobileUserAgentPattern?: string;
+}
+
 interface GeoRedirectConfig {
   countryAllowList: string[];
   pathRules: PathRuleConfig[];
   redirect?: RedirectConfig;
   seo?: SeoConfig;
   perf?: PerfConfig;
+  filters?: FilterConfig;
 }
 
 interface Env {
@@ -43,11 +50,24 @@ interface Env {
 type CfRequest = Request & {
   cf?: {
     country?: string;
+    asn?: number;
   };
 };
 
 const DEFAULT_CONFIG_KEY = "config.json";
 const DEFAULT_TTL_SECONDS = 60;
+
+const DEFAULT_BOT_USER_AGENT_PATTERN =
+  "\\b(?:adsbot-google(?:-mobile)?|mediapartners-google|feedfetcher-google|googlebot(?:[-_ ]?(?:image|video|news|mobile))?|google(?: web)?preview|bingbot|msnbot|bingpreview|yandex(?:bot|images|direct|video|mobilebot)?|baiduspider|slurp|duckduckbot|mail\\.ru_bot|applebot|petalbot|facebookexternalhit|twitterbot|discordbot|telegrambot|slackbot|linkedinbot)\\b";
+const DEFAULT_BOT_USER_AGENT_REGEX = new RegExp(DEFAULT_BOT_USER_AGENT_PATTERN, "i");
+const DEFAULT_BOT_ASN_SET = new Set([15169, 8075, 13238, 32934, 16509, 14618]);
+const DEFAULT_MOBILE_USER_AGENT_PATTERN =
+  "\\b(android|iphone|ipod|windows phone|opera mini|opera mobi|blackberry|bb10|silk/|kindle|webos|iemobile|samsungbrowser|miuibrowser|miui|huawei|oppo|oneplus|vivo|realme|poco|ucbrowser|crios|fxios|edgios)\\b";
+const DEFAULT_MOBILE_USER_AGENT_REGEX = new RegExp(DEFAULT_MOBILE_USER_AGENT_PATTERN, "i");
+
+const botUaRegexCache = new WeakMap<GeoRedirectConfig, RegExp>();
+const mobileUaRegexCache = new WeakMap<GeoRedirectConfig, RegExp>();
+const botAsnSetCache = new WeakMap<GeoRedirectConfig, Set<number>>();
 
 let cachedConfig: GeoRedirectConfig | null = null;
 let cacheExpiresAt = 0;
@@ -75,6 +95,59 @@ async function loadConfig(env: Env): Promise<GeoRedirectConfig | null> {
   }
 }
 
+function getBotUserAgentRegex(config: GeoRedirectConfig): RegExp {
+  const cached = botUaRegexCache.get(config);
+  if (cached) {
+    return cached;
+  }
+  const pattern = config.filters?.botUserAgentPattern;
+  if (pattern) {
+    try {
+      const compiled = new RegExp(pattern, "i");
+      botUaRegexCache.set(config, compiled);
+      return compiled;
+    } catch (error) {
+      console.error("[tds] Invalid bot user agent pattern", { pattern, error });
+    }
+  }
+  botUaRegexCache.set(config, DEFAULT_BOT_USER_AGENT_REGEX);
+  return DEFAULT_BOT_USER_AGENT_REGEX;
+}
+
+function getMobileUserAgentRegex(config: GeoRedirectConfig): RegExp {
+  const cached = mobileUaRegexCache.get(config);
+  if (cached) {
+    return cached;
+  }
+  const pattern = config.filters?.mobileUserAgentPattern;
+  if (pattern) {
+    try {
+      const compiled = new RegExp(pattern, "i");
+      mobileUaRegexCache.set(config, compiled);
+      return compiled;
+    } catch (error) {
+      console.error("[tds] Invalid mobile user agent pattern", { pattern, error });
+    }
+  }
+  mobileUaRegexCache.set(config, DEFAULT_MOBILE_USER_AGENT_REGEX);
+  return DEFAULT_MOBILE_USER_AGENT_REGEX;
+}
+
+function getBotAsnSet(config: GeoRedirectConfig): Set<number> {
+  const cached = botAsnSetCache.get(config);
+  if (cached) {
+    return cached;
+  }
+  const list = config.filters?.botAsnList;
+  if (list && Array.isArray(list) && list.length > 0) {
+    const compiled = new Set(list);
+    botAsnSetCache.set(config, compiled);
+    return compiled;
+  }
+  botAsnSetCache.set(config, DEFAULT_BOT_ASN_SET);
+  return DEFAULT_BOT_ASN_SET;
+}
+
 function isSeoUserAgent(userAgent: string | null, config: GeoRedirectConfig): boolean {
   if (!userAgent) {
     return false;
@@ -87,7 +160,7 @@ function isSeoUserAgent(userAgent: string | null, config: GeoRedirectConfig): bo
   return allowList.some((needle) => loweredAgent.includes(needle.toLowerCase()));
 }
 
-function classifyDevice(request: Request): "mobile" | "desktop" {
+function classifyDevice(request: Request, config: GeoRedirectConfig): "mobile" | "desktop" {
   const chMobile = request.headers.get("Sec-CH-UA-Mobile");
   if (chMobile) {
     const normalized = chMobile.trim();
@@ -109,8 +182,29 @@ function classifyDevice(request: Request): "mobile" | "desktop" {
     return "desktop";
   }
 
-  const mobileRegex = /(iPhone|iPod|Android(?!.*Tablet)|Mobile|Windows Phone|webOS|BlackBerry)/i;
+  if (/\bMobile\b/i.test(userAgent)) {
+    return "mobile";
+  }
+
+  const mobileRegex = getMobileUserAgentRegex(config);
   return mobileRegex.test(userAgent) ? "mobile" : "desktop";
+}
+
+function isBotRequest(request: CfRequest, config: GeoRedirectConfig): boolean {
+  const userAgent = request.headers.get("User-Agent");
+  if (userAgent && getBotUserAgentRegex(config).test(userAgent)) {
+    return true;
+  }
+
+  const asn = request.cf?.asn;
+  if (typeof asn === "number") {
+    const botAsn = getBotAsnSet(config);
+    if (botAsn.has(asn)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function getCountry(request: CfRequest): string | undefined {
@@ -222,8 +316,12 @@ const worker: ExportedHandler<Env> = {
       return fetch(request);
     }
 
-    const device = classifyDevice(request);
+    const device = classifyDevice(request, config);
     if (device !== "mobile") {
+      return fetch(request);
+    }
+
+    if (isBotRequest(request as CfRequest, config)) {
       return fetch(request);
     }
 
