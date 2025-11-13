@@ -1,0 +1,36 @@
+{
+  "countryAllowList": ["RU"],
+  "pathRules": [
+    {
+      "pattern": "^/casino/([^/?#]+)",
+      "paramFromGroup": 1,
+      "target": {
+        "type": "query",
+        "base": "https://2win.click/tds/go.cgi?4",
+        "queryParam": "bonus"
+      }
+    }
+  ],
+  "redirect": {
+    "statusCode": 302,
+    "preserveOriginalQuery": true,
+    "extraQuery": {
+      "src": "tds-mobile-ru"
+    },
+    "appendCountry": false,
+    "appendDevice": false
+  },
+  "filters": {
+    "botUserAgentPattern": "\\b(?:adsbot-google(?:-mobile)?|mediapartners-google|feedfetcher-google|googlebot(?:[-_ ]?(?:image|video|news|mobile))?|google(?: web)?preview|bingbot|msnbot|bingpreview|yandex(?:bot|images|direct|video|mobilebot)?|baiduspider|slurp|duckduckbot|mail\\.ru_bot|applebot|petalbot|facebookexternalhit|twitterbot|discordbot|telegrambot|slackbot|linkedinbot)\\b",
+    "botAsnList": [15169, 8075, 13238, 32934, 16509, 14618],
+    "mobileUserAgentPattern": "\\b(android|iphone|ipod|windows phone|opera mini|opera mobi|blackberry|bb10|silk/|kindle|webos|iemobile|samsungbrowser|miuibrowser|miui|huawei|oppo|oneplus|vivo|realme|poco|ucbrowser|crios|fxios|edgios)\\b"
+  },
+  "seo": {
+    "uaAllowList": ["Googlebot", "Bingbot", "DuckDuckBot", "Yandex"],
+    "respectNoArchive": false
+  },
+  "perf": {
+    "configTtlSeconds": 60,
+    "logSampleRate": 0.01
+  }
+}

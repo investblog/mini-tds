@@ -1,10 +1,13 @@
 name = "mini-tds"
 main = "src/worker.ts"
-compatibility_date = "2024-04-30"
+compatibility_date = "2024-11-01"
 
-[[kv_namespaces]]
-binding = "CONFIG"
-# Важно: воркер читает конфиг через env.CONFIG, не переименовывайте биндинг
-# Заполните значениями namespace при инициализации
-id = ""
-preview_id = ""
+# Пример привязки маршрутов. Удалите или измените под свои нужды.
+# routes = [
+#   { pattern = "example.com/*", zone_name = "example.com" }
+# ]
+
+# Если нужен KV для дополнительных конфигов — раскомментируйте и пропишите свой namespace.
+# kv_namespaces = [
+#   { binding = "CONFIG", id = "" }
+# ]

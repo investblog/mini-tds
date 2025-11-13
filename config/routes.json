@@ -1,22 +1,23 @@
 {
-  "routes": [
+  "rules": [
     {
-      "id": "ru-mobile-casino",
+      "id": "ru-mobile-casino-redirect",
       "match": {
         "path": ["/casino/*"],
-        "countries": ["RU", "KZ", "BY"],
-        "devices": ["mobile"]
+        "countries": ["RU"],
+        "devices": ["mobile"],
+        "bot": false
       },
       "target": "https://2win.click/tds/go.cgi?4",
-      "stripPathPrefix": "/casino/",
-      "appendPath": false,
+      "status": 302,
       "forwardQuery": false,
-      "extraParams": { "src": "mini-tds" },
-      "status": 302
+      "appendPath": false,
+      "extraParams": {
+        "__pathToParam": "bonus",
+        "__stripPrefix": "/casino/"
+      },
+      "trackingParam": "src",
+      "trackingValue": "mobile-geo"
     }
-  ],
-  "fallback": {
-    "status": 404,
-    "body": "Not matched"
-  }
+  ]
 }
