@@ -596,6 +596,7 @@ function adminHtml(
       .diff.neutral { color: #ccc; }
       .log-error { color: #ff8a8a; margin-top: 0.25rem; white-space: pre-wrap; }
       .log-note { color: #8ab4f8; margin-top: 0.25rem; white-space: pre-wrap; }
+      .help { margin: 0.5rem 0 0; color: #bbb; line-height: 1.5; font-size: 0.9rem; }
     </style>
   </head>
   <body>
@@ -616,6 +617,12 @@ function adminHtml(
       </section>
       <section>
         <h2>Routes</h2>
+        <p class="help">
+          Paste a JSON array of route rules. Keep IDs unique, put specific matches first,
+          and click <b>Validate</b> before publishing. See the
+          <a href="https://github.com/mini-tds/mini-tds/blob/main/docs/routes-guide.md" target="_blank" rel="noreferrer noopener">route guide</a>
+          for more examples.
+        </p>
         <textarea id="routes" ${flags.uiReadonly ? "readonly" : ""}></textarea>
       </section>
       <section>
@@ -792,7 +799,10 @@ function adminResponse(
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   headers.set("X-Frame-Options", "DENY");
-  headers.set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline';");
+  headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+  );
   return new Response(body, { status: 200, headers });
 }
 
