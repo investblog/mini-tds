@@ -153,6 +153,9 @@ The Worker runs at `http://127.0.0.1:8787`. Change the `User-Agent` or
 
 ## Cloudflare deployment guide
 
+> Need to deploy entirely from the Cloudflare Dashboard without Wrangler? Follow
+> the [No-CLI Setup Guide](docs/no-cli-setup.md).
+
 1. **Authenticate Wrangler**
    ```bash
    npm install
@@ -197,6 +200,32 @@ fact) you do not need to redeploy:
    `CONFIG`, and create or select a namespace. Repeat for the `AUDIT` binding.
 3. Under **Secrets**, click **Add**, set **Variable name** to `ADMIN_TOKEN`, and
    supply your admin token value.
+
+### Manual bundle for dashboard uploads
+
+If you prefer to upload the Worker bundle manually (for example when using the
+Cloudflare Dashboard), build the module locally:
+
+```bash
+npm install
+npm run build
+```
+
+The compiled Worker is written to `dist/worker.js`. Upload that file via
+**Workers & Pages → Your worker → Deployments → Upload Worker** and publish the
+new revision.
+
+## Origin compatibility
+
+The Worker is safe to attach to existing single page applications:
+
+- All non-`GET` requests are forwarded straight to the origin without any
+  matching logic.
+- `GET` requests that do not match a routing rule are proxied as-is to the
+  origin.
+
+These behaviors guarantee that API calls, form submissions, and SPA client-side
+routes continue to work unless you explicitly configure a matching rule.
 
 As soon as the bindings are attached Cloudflare updates the environment
 automatically. Refresh `/admin?token=…`: the Worker will bootstrap KV with the
