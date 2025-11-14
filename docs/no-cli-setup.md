@@ -53,7 +53,7 @@ few configuration clicks.
 3. Set **Variable name** to `CONFIG` and click **Create a namespace**. Give the
    namespace a recognizable name (for example, `mini-tds-config`) and save.
 4. Repeat the process to create a second namespace with **Variable name** set to
-   `AUDIT`.
+   `AUDIT`. Give it a unique name as well (for example, `mini-tds-audit`).
 
 ## 6. Add the admin token secret
 
