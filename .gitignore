@@ -4,3 +4,5 @@ node_modules
 
 # Wrangler
 .wrangler/
+
+dist/
