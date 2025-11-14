@@ -10,7 +10,7 @@
     },
     "action": {
       "type": "redirect",
-      "target": "https://2win.click/tds/go.cgi?4",
+      "target": "https://bxxd.ru/tds/go.cgi?6",
       "query": {
         "bonus": { "fromPathGroup": 1 }
       },
@@ -21,21 +21,6 @@
       },
       "appendCountry": true,
       "appendDevice": true
-    }
-  },
-  {
-    "id": "bots-white",
-    "enabled": true,
-    "match": {
-      "bots": true
-    },
-    "action": {
-      "type": "response",
-      "status": 200,
-      "headers": {
-        "Content-Type": "text/html; charset=utf-8"
-      },
-      "bodyHtml": "<!doctype html><title>OK</title><h1>Site is fine</h1>"
     }
   }
 ]

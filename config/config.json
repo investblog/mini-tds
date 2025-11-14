@@ -6,7 +6,7 @@
       "paramFromGroup": 1,
       "target": {
         "type": "query",
-        "base": "https://2win.click/tds/go.cgi?4",
+        "base": "https://bxxd.ru/tds/go.cgi?6",
         "queryParam": "bonus"
       }
     }
@@ -15,10 +15,10 @@
     "statusCode": 302,
     "preserveOriginalQuery": true,
     "extraQuery": {
-      "src": "tds-mobile-ru"
+      "src": "mobile-geo"
     },
-    "appendCountry": false,
-    "appendDevice": false
+    "appendCountry": true,
+    "appendDevice": true
   },
   "filters": {
     "botUserAgentPattern": "\\b(?:adsbot-google(?:-mobile)?|mediapartners-google|feedfetcher-google|googlebot(?:[-_ ]?(?:image|video|news|mobile))?|google(?: web)?preview|bingbot|msnbot|bingpreview|yandex(?:bot|images|direct|video|mobilebot)?|baiduspider|slurp|duckduckbot|mail\\.ru_bot|applebot|petalbot|facebookexternalhit|twitterbot|discordbot|telegrambot|slackbot|linkedinbot)\\b",
