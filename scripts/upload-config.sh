@@ -45,6 +45,7 @@ const DEFAULT_FLAGS = {
   allowedAdminIps: [],
   uiTitle: "mini-tds admin",
   uiReadonly: false,
+  uiReadOnlyBanner: "",
 };
 
 const nowIso = () => new Date().toISOString();

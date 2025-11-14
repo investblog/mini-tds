@@ -125,6 +125,7 @@ Flags are stored under `CONFIG/flags` and follow this structure:
 | `allowedAdminIps` | Optional allow list for admin IPs. Empty list disables the check. |
 | `uiTitle` | `<title>` for the admin UI. |
 | `uiReadonly` | Disable mutations from the admin UI while keeping read access. |
+| `uiReadOnlyBanner` | Optional message displayed above the controls when the UI is read-only. |
 | `webhookUrl` | Optional callback URL for future integrations (not used yet). |
 
 Metadata describing the last update is stored under `CONFIG/metadata`.
