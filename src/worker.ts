@@ -191,7 +191,11 @@ function isIpAllowed(ip: string | undefined | null, flags: FlagsConfig): boolean
 }
 
 async function writeAudit(env: Env, entry: AuditEntry): Promise<void> {
-  await env.AUDIT.put(auditKey(), JSON.stringify(entry));
+  try {
+    await env.AUDIT.put(auditKey(), JSON.stringify(entry));
+  } catch (error) {
+    console.error("Failed to write audit entry", error);
+  }
 }
 
 async function loadRawConfig(env: Env): Promise<{
@@ -506,6 +510,7 @@ function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
     <meta charset="utf-8" />
     <title>${flags.uiTitle}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
     <style>
       :root { color-scheme: dark light; }
       body { font-family: system-ui, sans-serif; margin: 0; padding: 0; background: #111; color: #f5f5f5; }
