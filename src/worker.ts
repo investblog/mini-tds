@@ -1,7 +1,7 @@
 // src/worker.ts
 import DEFAULT_ROUTES from "../config/routes.json" assert { type: "json" };
 
-/** ----------------------------- Типы окружения ----------------------------- */
+/** ----------------------------- Environment types ----------------------------- */
 export interface Env {
   CONFIG: KVNamespace;
   AUDIT: KVNamespace;
@@ -12,7 +12,7 @@ export interface Env {
   CONFIG_VERSION?: string;
 }
 
-/** ----------------------------- Типы конфигурации ----------------------------- */
+/** ----------------------------- Configuration types ----------------------------- */
 export type Device = "mobile" | "desktop" | "tablet" | "any";
 
 export interface MatchRule {
@@ -92,7 +92,7 @@ export interface AuditEntry {
   error?: string;
 }
 
-/** ----------------------------- Константы ----------------------------- */
+/** ----------------------------- Constants ----------------------------- */
 const DEFAULT_FLAGS: FlagsConfig = {
   cacheTtlMs: 60_000,
   strictBots: true,
@@ -107,11 +107,11 @@ const CONFIG_PREFIX = "CONFIG";
 const AUDIT_PREFIX = "AUDIT";
 const MIN_TTL = 5_000;
 
-/** ----------------------------- Глобальные переменные ----------------------------- */
+/** ----------------------------- Global state ----------------------------- */
 let cachedConfig: ConfigBundle | null = null;
 let initPromise: Promise<void> | null = null;
 
-/** ----------------------------- Утилиты ----------------------------- */
+/** ----------------------------- Utilities ----------------------------- */
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -303,7 +303,7 @@ async function ensureConfigInitialized(env: Env): Promise<void> {
   return initPromise;
 }
 
-/** ----------------------------- Матчинг ----------------------------- */
+/** ----------------------------- Matching ----------------------------- */
 interface MatchContext {
   route: RouteRule;
   pathMatch: RegExpMatchArray | null;
@@ -380,7 +380,7 @@ function matchRoute(
   return { route: rule, pathMatch };
 }
 
-/** ----------------------------- Исполнение действий ----------------------------- */
+/** ----------------------------- Action execution ----------------------------- */
 function applyRedirect(
   action: RedirectAction,
   context: MatchContext,
@@ -462,7 +462,7 @@ function executeRoute(
   return new Response(null, { status: 500, statusText: "Unknown action" });
 }
 
-/** ----------------------------- Валидация ----------------------------- */
+/** ----------------------------- Validation ----------------------------- */
 function validateRoutesPayload(routes: unknown): asserts routes is RouteRule[] {
   if (!Array.isArray(routes)) {
     throw new Error("routes must be an array");
@@ -495,13 +495,13 @@ function validateFlagsPayload(flags: unknown): asserts flags is FlagsConfig {
   }
 }
 
-/** ----------------------------- Админ UI ----------------------------- */
+/** ----------------------------- Admin UI ----------------------------- */
 function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
   const warning = tokenFromQuery
-    ? `<div class="warning">Внимание: токен в URL. Он будет удалён после загрузки.</div>`
+    ? `<div class="warning">Warning: token detected in the URL. It will be removed after load.</div>`
     : "";
   return `<!doctype html>
-<html lang="ru">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>${flags.uiTitle}</title>
@@ -531,7 +531,7 @@ function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
       <section>
         ${warning}
         <div class="row">
-          <button id="reload">Перезагрузить</button>
+          <button id="reload">Reload</button>
           <button id="publish" ${flags.uiReadonly ? "disabled" : ""}>Publish</button>
           <button id="invalidate">Invalidate cache</button>
         </div>
@@ -622,7 +622,7 @@ function adminResponse(flags: FlagsConfig, tokenFromQuery?: string): Response {
   return new Response(body, { status: 200, headers });
 }
 
-/** ----------------------------- Админ API ----------------------------- */
+/** ----------------------------- Admin API ----------------------------- */
 async function authorize(request: Request, env: Env, flags: FlagsConfig): Promise<void> {
   const token = readAdminToken(request);
   if (!token || token !== env.ADMIN_TOKEN) {
@@ -920,7 +920,7 @@ async function handleRuntimeRequest(request: Request, env: Env): Promise<Respons
   return fetch(request);
 }
 
-/** ----------------------------- Основной обработчик ----------------------------- */
+/** ----------------------------- Main handler ----------------------------- */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     await ensureConfigInitialized(env);

@@ -2,7 +2,7 @@ name = "mini-tds"
 main = "src/worker.ts"
 compatibility_date = "2024-11-01"
 
-# Пример привязки маршрутов. Удалите или измените под свои нужды.
+# Sample routes binding. Delete or replace with your own mapping.
 # routes = [
 #   { pattern = "example.com/*", zone_name = "example.com" }
 # ]
@@ -15,5 +15,5 @@ id = "<YOUR_CONFIG_NAMESPACE_ID>"
 binding = "AUDIT"
 id = "<YOUR_AUDIT_NAMESPACE_ID>"
 
-# Перед деплоем создайте секрет с админ-токеном:
+# Before deploying create the admin token secret:
 #   npx wrangler secret put ADMIN_TOKEN
