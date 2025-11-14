@@ -116,6 +116,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// @ts-ignore — в рантайме binding может быть не задан
+function hasKv(env: Env): boolean {
+  return Boolean((env as any)?.CONFIG && (env as any)?.AUDIT);
+}
+
 function configKey(env: Env, suffix: string): string {
   const key =
     suffix === "routes"
@@ -191,6 +196,7 @@ function isIpAllowed(ip: string | undefined | null, flags: FlagsConfig): boolean
 }
 
 async function writeAudit(env: Env, entry: AuditEntry): Promise<void> {
+  if (!hasKv(env)) return;
   try {
     await env.AUDIT.put(auditKey(), JSON.stringify(entry));
   } catch (error) {
@@ -203,6 +209,17 @@ async function loadRawConfig(env: Env): Promise<{
   flags: FlagsConfig;
   metadata: MetadataRecord;
 }> {
+  if (!hasKv(env)) {
+    return {
+      routes: (DEFAULT_ROUTES as RouteRule[]) ?? [],
+      flags: { ...DEFAULT_FLAGS },
+      metadata: {
+        version: env.CONFIG_VERSION || "embedded",
+        updatedAt: nowIso(),
+        updatedBy: "embedded",
+      },
+    };
+  }
   const [routes, flags, metadata] = await Promise.all([
     env.CONFIG.get<RouteRule[]>(configKey(env, "routes"), "json"),
     env.CONFIG.get<FlagsConfig>(configKey(env, "flags"), "json"),
@@ -238,6 +255,9 @@ async function hydrateCache(env: Env, forceReload = false): Promise<ConfigBundle
     return cachedConfig;
   }
   const raw = await loadRawConfig(env);
+  if (!hasKv(env)) {
+    raw.flags = { ...raw.flags, uiReadonly: true };
+  }
   const etag = await computeEtag(raw);
   const ttl = Math.max(raw.flags.cacheTtlMs || 60_000, MIN_TTL);
   cachedConfig = {
@@ -256,6 +276,9 @@ function invalidateCache(): void {
 }
 
 async function ensureConfigInitialized(env: Env): Promise<void> {
+  if (!hasKv(env)) {
+    return;
+  }
   if (initPromise) {
     return initPromise;
   }
@@ -500,10 +523,25 @@ function validateFlagsPayload(flags: unknown): asserts flags is FlagsConfig {
 }
 
 /** ----------------------------- Admin UI ----------------------------- */
-function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
+function adminHtml(
+  flags: FlagsConfig,
+  tokenFromQuery?: string,
+  kvReady = true
+): string {
   const warning = tokenFromQuery
     ? `<div class="warning">Warning: token detected in the URL. It will be removed after load.</div>`
     : "";
+  const kvBanner = kvReady
+    ? ""
+    : `<div class="warning">
+    KV bindings are not set. Admin works in read-only mode.
+    Go to <b>Workers &amp; Pages → Your worker → Settings → Bindings</b> and add:
+    <ul>
+      <li>KV Namespace: binding <code>CONFIG</code></li>
+      <li>KV Namespace: binding <code>AUDIT</code></li>
+      <li>Secret: <code>ADMIN_TOKEN</code></li>
+    </ul>
+  </div>`;
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -534,11 +572,11 @@ function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
     </header>
     <main>
       <section>
-        ${warning}
+        ${warning}${kvBanner}
         <div class="row">
           <button id="reload">Reload</button>
           <button id="publish" ${flags.uiReadonly ? "disabled" : ""}>Publish</button>
-          <button id="invalidate">Invalidate cache</button>
+          <button id="invalidate" ${flags.uiReadonly ? "disabled" : ""}>Invalidate cache</button>
         </div>
       </section>
       <section>
@@ -617,8 +655,12 @@ function adminHtml(flags: FlagsConfig, tokenFromQuery?: string): string {
 </html>`;
 }
 
-function adminResponse(flags: FlagsConfig, tokenFromQuery?: string): Response {
-  const body = adminHtml(flags, tokenFromQuery);
+function adminResponse(
+  flags: FlagsConfig,
+  tokenFromQuery?: string,
+  kvReady = true
+): Response {
+  const body = adminHtml(flags, tokenFromQuery, kvReady);
   const headers = new Headers();
   headers.set("Content-Type", "text/html; charset=utf-8");
   headers.set("Cache-Control", "no-store");
@@ -666,6 +708,12 @@ async function handleRoutesPut(
   env: Env,
   actor: string
 ): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const text = await request.text();
   const payload = parseJsonBody<{ routes: unknown }>(text);
   validateRoutesPayload(payload.routes);
@@ -717,6 +765,12 @@ async function handleRoutesPatch(
   actor: string,
   id: string
 ): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const text = await request.text();
   const raw = parseJsonBody<Partial<RouteRule> | { patch: Partial<RouteRule> }>(text);
   const current = await hydrateCache(env, true);
@@ -755,6 +809,12 @@ async function handleRoutesDelete(
   actor: string,
   id: string
 ): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const current = await hydrateCache(env, true);
   const next = current.routes.filter((route) => route.id !== id);
   if (next.length === current.routes.length) {
@@ -783,7 +843,10 @@ async function handleRoutesDelete(
 
 async function handleFlagsGet(env: Env): Promise<Response> {
   const bundle = await hydrateCache(env, true);
-  return new Response(JSON.stringify({ flags: bundle.flags }), {
+  const flags = hasKv(env)
+    ? bundle.flags
+    : { ...bundle.flags, uiReadonly: true };
+  return new Response(JSON.stringify({ flags }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
@@ -794,6 +857,12 @@ async function handleFlagsPut(
   env: Env,
   actor: string
 ): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const text = await request.text();
   const payload = parseJsonBody<{ flags: unknown }>(text);
   validateFlagsPayload(payload.flags);
@@ -818,6 +887,12 @@ async function handleFlagsPut(
 }
 
 async function handleCacheInvalidate(env: Env, actor: string): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   invalidateCache();
   await writeAudit(env, {
     ts: nowIso(),
@@ -831,6 +906,12 @@ async function handleCacheInvalidate(env: Env, actor: string): Promise<Response>
 }
 
 async function handleAudit(env: Env, limit: number): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const list = await env.AUDIT.list({ prefix: `${AUDIT_PREFIX}/`, limit });
   const entries: AuditEntry[] = [];
   for (const key of list.keys) {
@@ -876,6 +957,12 @@ async function handleImport(
   env: Env,
   actor: string
 ): Promise<Response> {
+  if (!hasKv(env)) {
+    return new Response(JSON.stringify({ error: "kv_not_configured" }), {
+      status: 501,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   const text = await request.text();
   const payload = parseJsonBody<{
     routes: unknown;
@@ -933,6 +1020,11 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const bundle = await hydrateCache(env);
+    const kvReady = hasKv(env);
+    const effectiveFlags = {
+      ...bundle.flags,
+      uiReadonly: bundle.flags.uiReadonly || !kvReady,
+    };
 
     if (pathname === "/admin") {
       try {
@@ -945,7 +1037,7 @@ export default {
         });
       }
       const tokenFromQuery = url.searchParams.get("token") || undefined;
-      return adminResponse(bundle.flags, tokenFromQuery);
+      return adminResponse(effectiveFlags, tokenFromQuery, kvReady);
     }
 
     if (pathname.startsWith("/api/")) {
