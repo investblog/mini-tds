@@ -1,63 +1,94 @@
 # mini-tds
 
-Минимальный Cloudflare Worker для мобильного гео-редиректа. Акцент сделан на
-простоте: все рабочие правила лежат в `config/routes.json` и подхватываются на
-этапе сборки, поэтому воркер не зависит от KV и всегда использует актуальный
-маршрутизатор.
+`mini-tds` is a minimal Cloudflare Worker for geo/device-based redirects. All routing
+rules live in `config/routes.json` and are embedded at build time, so the Worker
+always serves the latest configuration without relying on KV storage.
 
-## Что делает воркер
+## Worker workflow
 
-1. Пропускает любые не-`GET` запросы напрямую на origin.
-2. Собирает данные из `CF` (страна) и заголовков (`User-Agent`, `Sec-CH-UA-*`).
-3. Определяет тип устройства (desktop / mobile / tablet) и является ли запрос
-   поисковым ботом.
-4. Ищет первое правило из `config/routes.json`, которое подходит по стране,
-   устройству, бот-флагу и пути (поддерживаются `*`-паттерны и RegExp).
-5. Формирует конечный URL, умеет доклеивать путь, пробрасывать query и вытягивать
-   первый сегмент пути в произвольный параметр.
-6. Отдаёт 30x-редирект. Если правило не найдено — прозрачно проксирует запрос.
+1. Forward every non-`GET` request directly to the origin.
+2. Collect request context from Cloudflare (country) and headers (`User-Agent`,
+   `Sec-CH-UA-*`).
+3. Detect the device type (`desktop`, `mobile`, `tablet`) and whether the request
+   was issued by a search bot.
+4. Pick the first rule from `config/routes.json` that matches the country,
+   device, bot flag, and path (`*` masks and regular expressions are supported).
+5. Build a target URL, optionally appending the original path, forwarding the
+   query string, or extracting the first path segment into a custom parameter.
+6. Return a 30x redirect. If no rule matches, transparently proxy the request to
+   the origin.
 
-## Структура `config/routes.json`
+## Editing `config/routes.json`
 
-Каждое правило включает:
+Each rule contains:
 
-- `match.path` — список масок (`/casino/*`), которые должны совпасть с
-  `pathname`.
-- `match.pattern` — дополнительные регулярные выражения (опционально).
-- `match.countries` — ISO-коды стран (опционально).
-- `match.devices` — допустимые устройства (`mobile`, `desktop`, `tablet`, `any`).
-- `match.bot` — если `false`, правило игнорирует поисковых ботов.
-- `target` — базовый URL редиректа.
-- `appendPath` — добавить оригинальный путь в конец `target`.
-- `forwardQuery` — пробросить исходный query-string.
-- `extraParams` — дополнительные параметры. Ключи, начинающиеся с `__`, зарезервированы
-  для служебных опций: например, `__pathToParam` указывает, в какой query-параметр
-  положить первый сегмент пути, а `__stripPrefix` — что отрезать перед извлечением.
-- `trackingParam` / `trackingValue` — быстрый способ добавить трекинговую метку.
+- `match.path` – list of glob masks (for example `/casino/*`) that must match the
+  request `pathname`.
+- `match.pattern` – additional regular expressions (optional).
+- `match.countries` – ISO country codes (optional).
+- `match.devices` – allowed devices (`mobile`, `desktop`, `tablet`, `any`).
+- `match.bot` – when `false`, the rule ignores search bots.
+- `target` – base redirect URL.
+- `appendPath` – append the original path to `target`.
+- `forwardQuery` – forward the original query string.
+- `extraParams` – extra query parameters. Keys that start with `__` are reserved
+  for advanced options such as `__pathToParam` (store the first path segment in a
+  query parameter) and `__stripPrefix` (remove a prefix before extraction).
+- `trackingParam` / `trackingValue` – quick way to add a tracking tag.
 
-Измените файл `config/routes.json` под ваши нужды и заново задеплойте воркер.
+Update the file to reflect your routing logic, rebuild, and redeploy the Worker.
 
-## Локальный запуск
+## Local development
 
 ```bash
 npm install
 npm run dev
 ```
 
-Воркер стартует на `http://127.0.0.1:8787`. Меняйте заголовки `User-Agent` и
-`Sec-CH-UA-Mobile`, чтобы тестировать разные сценарии.
+The Worker runs at `http://127.0.0.1:8787`. Change the `User-Agent` or
+`Sec-CH-UA-Mobile` headers to emulate different devices.
 
-## Деплой
+## Cloudflare deployment guide
 
-```bash
-npm run deploy
-```
+1. **Authenticate Wrangler**
+   ```bash
+   npm install
+   npx wrangler login
+   ```
+   Log into your Cloudflare account to let Wrangler manage Workers on your
+   behalf.
+2. **Review `wrangler.toml`**
+   - Set `name` to your Worker name.
+   - Configure `main` (entry script) and `compatibility_date` if needed.
+   - Under `routes`, add the domains or zone patterns (for example,
+     `https://example.com/*`) that should trigger the Worker.
+3. **Build and publish**
+   ```bash
+   npm run deploy
+   ```
+   This command builds the Worker, embeds `config/routes.json`, and uploads the
+   bundle to Cloudflare.
+4. **Bind environment variables (optional)**
+   If you need KV namespaces, Durable Objects, or secrets for your own workflow,
+   add them to `wrangler.toml` and bind via `npx wrangler kv:namespace create`,
+   `npx wrangler deploy --env production`, or `npx wrangler secret put`.
+5. **Verify routing**
+   Use `npx wrangler tail` to monitor requests in real time and confirm that your
+   redirect rules behave as expected. Adjust `config/routes.json` and redeploy as
+   needed.
 
-Обновите `wrangler.toml`, чтобы привязать воркер к нужному домену/маршруту.
+## Cloudflare Pages / CDN configuration tips
 
-## Дополнительно
+- When connecting the Worker to an existing site, create a route in the Cloudflare
+  dashboard or in `wrangler.toml` to intercept only the paths you want to manage.
+- If you prefer to trigger redirects only for specific hostnames, use multiple
+  routes like `https://m.example.com/*` and `https://www.example.com/casino/*`.
+- For staged environments, define `[env.staging]` sections in `wrangler.toml` with
+  their own `routes` and run `npm run deploy -- --env staging`.
 
-Скрипт `scripts/upload-config.sh` оставлен для совместимости: он отправляет
-`config/config.json` в KV с биндингом `CONFIG`. Если вы хотите продолжать вести
-«тяжёлую» конфигурацию в KV или синхронизировать её с другими системами,
-используйте этот файл и скрипт.
+## Legacy KV upload script
+
+The script `scripts/upload-config.sh` remains for backwards compatibility. It
+publishes `config/config.json` to a KV namespace bound as `CONFIG`. Use it if you
+still maintain a heavier configuration in KV or need to sync with external
+systems.
