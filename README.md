@@ -13,9 +13,10 @@ KV, keeps an in-memory cache with TTL, and exposes a protected HTTP API plus a s
 - **Hot reload with cache.** Configuration is read from KV on demand and cached in
   memory for `flags.cacheTtlMs` (defaults to 60 s). Cache can be invalidated through
   the API or UI.
-- **Admin API & UI.** Authenticated endpoints (`/api/routes`, `/api/flags`,
-  `/api/audit`, `/api/cache/invalidate`, `/api/import`, `/api/export`) plus a single
-  page app served at `/admin`. All mutations are logged to the `AUDIT` namespace.
+- **Admin API & UI.** Authenticated endpoints (`/api/routes`, `/api/routes/:id`,
+  `/api/routes/validate`, `/api/flags`, `/api/audit`, `/api/cache/invalidate`,
+  `/api/import`, `/api/export`) plus a single page app served at `/admin`. All
+  mutations are logged to the `AUDIT` namespace.
 - **ETag & audit trail.** Updates require matching `If-Match` headers to avoid lost
   updates, and every change is persisted in KV with hashes and actor metadata.
 - **Safety defaults.** `/admin` responses are non-cacheable and ship with CSP and
@@ -30,42 +31,109 @@ KV, keeps an in-memory cache with TTL, and exposes a protected HTTP API plus a s
 3. Detect the device type (`desktop`, `mobile`, `tablet`) and whether the request
    was issued by a search bot.
 4. Pick the first rule from `config/routes.json` that matches the country,
-   device, bot flag, and path (`*` masks and regular expressions are supported).
-5. Build a target URL, optionally appending the original path, forwarding the
-   query string, or extracting the first path segment into a custom parameter.
-6. Return a 30x redirect. If no rule matches, transparently proxy the request to
-   the origin.
+   device, bot flag, and path. `match.path` values are interpreted as JavaScript
+   regular expressions.
+5. Execute the configured action: build a redirect URL (optionally copying the
+   original query string, projecting regex capture groups, or appending country
+   and device) or return a custom response.
+6. Return the action result. If no rule matches, transparently proxy the request
+   to the origin.
 
-## Editing `config/routes.json`
+## Configuration schema
 
-Each rule contains:
+The Worker ships with `config/routes.json`. On first run the bundle is written to the
+`CONFIG` namespace together with default flags, so you can edit data in KV without
+redeploying.
 
-- `match.path` – list of glob masks (for example `/casino/*`) that must match the
-  request `pathname`.
-- `match.pattern` – additional regular expressions (optional).
-- `match.countries` – ISO country codes (optional).
-- `match.devices` – allowed devices (`mobile`, `desktop`, `tablet`, `any`).
-- `match.bot` – when `false`, the rule ignores search bots.
-- `target` – base redirect URL.
-- `appendPath` – append the original path to `target`.
-- `forwardQuery` – forward the original query string.
-- `extraParams` – extra query parameters. Keys that start with `__` are reserved
-  for advanced options such as `__pathToParam` (store the first path segment in a
-  query parameter) and `__stripPrefix` (remove a prefix before extraction).
-- `trackingParam` / `trackingValue` – quick way to add a tracking tag.
+### Route rules
 
-Update the file to adjust the default routing logic. The Worker will copy these rules
-to KV automatically if the namespace is empty, so redeployments keep your manual
-changes intact.
+Routes are stored as an array of `RouteRule` objects. A rule has the shape:
+
+```json
+{
+  "id": "rule-id",
+  "enabled": true,
+  "match": {
+    "path": ["^/casino/([^/?#]+)"],
+    "countries": ["RU"],
+    "devices": ["mobile"],
+    "bots": false
+  },
+  "action": {
+    "type": "redirect",
+    "target": "https://example.com/landing",
+    "query": {
+      "bonus": { "fromPathGroup": 1 },
+      "campaign": { "literal": "spring" }
+    },
+    "preserveOriginalQuery": false,
+    "extraQuery": { "src": "mobile-geo" },
+    "appendCountry": true,
+    "appendDevice": true,
+    "status": 302
+  }
+}
+```
+
+#### `match`
+
+- `path` – string or array of strings. Each entry is treated as a JavaScript regular
+  expression executed against `request.pathname`. Capture groups can later be used in
+  the redirect query string.
+- `countries` – optional ISO country allow list (uppercase two-letter codes).
+- `devices` – optional list of allowed device types (`mobile`, `desktop`, `tablet`, or
+  `any`).
+- `bots` – optional boolean. When `true` the rule applies only to bots; when `false`
+  bots are excluded.
+
+#### `action`
+
+Two action types are supported:
+
+- `redirect`
+  - `target` – absolute URL the request should be redirected to.
+  - `status` – HTTP status code (defaults to `302`).
+  - `query` – optional object that maps parameter names to:
+    - a primitive value (`string`, `number`, or `boolean`),
+    - `{ "fromPathGroup": n }` to copy the `n`-th capture group from the matched
+      path (defaults to `0`), or
+    - `{ "literal": value }` to set a fixed string.
+  - `preserveOriginalQuery` – when `true`, copy the incoming query string to the
+    redirect target.
+  - `extraQuery` – additional static query parameters.
+  - `appendCountry` / `appendDevice` – when `true`, append detected values as
+    `country` / `device` query params.
+- `response`
+  - `status` – HTTP status code (defaults to `200`).
+  - `headers` – optional response headers.
+  - `bodyHtml` / `bodyText` – HTML or plain text payload.
+
+Set `enabled` to `false` to skip a rule without removing it.
+
+### Flags
+
+Flags are stored under `CONFIG/flags` and follow this structure:
+
+| Flag | Description |
+|------|-------------|
+| `cacheTtlMs` | TTL for the in-memory config cache (minimum 5 s). |
+| `strictBots` | When `true`, augment bot detection with `googleBots` and `yandexBots`. |
+| `yandexBots`, `googleBots` | Lists of substrings that identify search bots. |
+| `allowedAdminIps` | Optional allow list for admin IPs. Empty list disables the check. |
+| `uiTitle` | `<title>` for the admin UI. |
+| `uiReadonly` | Disable mutations from the admin UI while keeping read access. |
+| `webhookUrl` | Optional callback URL for future integrations (not used yet). |
+
+Metadata describing the last update is stored under `CONFIG/metadata`.
 
 ## Runtime configuration storage
 
 All mutable data lives in KV:
 
-| Namespace | Keys                     | Description                               |
-|-----------|--------------------------|-------------------------------------------|
+| Namespace | Keys | Description |
+|-----------|------|-------------|
 | `CONFIG`  | `CONFIG/routes`, `CONFIG/flags`, `CONFIG/metadata` | Active routes, feature flags, metadata |
-| `AUDIT`   | `AUDIT/<ts>-<uuid>`      | Append-only audit log for admin actions    |
+| `AUDIT`   | `AUDIT/<ts>-<uuid>` | Append-only audit log for admin actions |
 
 The Worker keeps an in-memory snapshot with TTL (`flags.cacheTtlMs`). Cache can be
 invalidated by calling `POST /api/cache/invalidate` or clicking the button in the UI.
