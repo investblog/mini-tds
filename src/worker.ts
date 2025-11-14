@@ -63,6 +63,7 @@ export interface FlagsConfig {
   allowedAdminIps: string[];
   uiTitle: string;
   uiReadonly: boolean;
+  uiReadOnlyBanner?: string;
   webhookUrl?: string;
 }
 
@@ -101,6 +102,7 @@ const DEFAULT_FLAGS: FlagsConfig = {
   allowedAdminIps: [],
   uiTitle: "mini-tds admin",
   uiReadonly: false,
+  uiReadOnlyBanner: "",
 };
 
 const CONFIG_PREFIX = "CONFIG";
@@ -114,6 +116,15 @@ let initPromise: Promise<void> | null = null;
 /** ----------------------------- Utilities ----------------------------- */
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // @ts-ignore — в рантайме binding может быть не задан
@@ -520,6 +531,13 @@ function validateFlagsPayload(flags: unknown): asserts flags is FlagsConfig {
   if (!flags || typeof flags !== "object") {
     throw new Error("flags must be an object");
   }
+  if (
+    "uiReadOnlyBanner" in (flags as Record<string, unknown>) &&
+    (flags as Record<string, unknown>).uiReadOnlyBanner !== undefined &&
+    typeof (flags as Record<string, unknown>).uiReadOnlyBanner !== "string"
+  ) {
+    throw new Error("flags.uiReadOnlyBanner must be a string");
+  }
 }
 
 /** ----------------------------- Admin UI ----------------------------- */
@@ -542,6 +560,10 @@ function adminHtml(
       <li>Secret: <code>ADMIN_TOKEN</code></li>
     </ul>
   </div>`;
+  const readonlyBanner =
+    flags.uiReadonly && flags.uiReadOnlyBanner
+      ? `<div class="banner">${escapeHtml(flags.uiReadOnlyBanner)}</div>`
+      : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -561,8 +583,19 @@ function adminHtml(
       button[disabled] { background: #555; cursor: not-allowed; }
       .row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
       .warning { color: #ffb347; margin-bottom: 0.5rem; }
+      .banner { margin-bottom: 0.75rem; padding: 0.75rem; border-radius: 0.5rem; background: #232323; border: 1px solid #333; line-height: 1.4; }
+      .status { margin-bottom: 0.75rem; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid transparent; white-space: pre-wrap; }
+      .status.success { background: #142618; border-color: #274d2e; color: #8fffa2; }
+      .status.error { background: #2b1616; border-color: #5f1f1f; color: #ff8a8a; }
       pre { background: #0f0f0f; padding: 0.75rem; border-radius: 0.5rem; overflow-x: auto; }
       .log-item { margin-bottom: 0.5rem; border-bottom: 1px solid #222; padding-bottom: 0.5rem; }
+      .log-header { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+      .diff { font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.85rem; }
+      .diff.positive { color: #8fffa2; }
+      .diff.negative { color: #ff8a8a; }
+      .diff.neutral { color: #ccc; }
+      .log-error { color: #ff8a8a; margin-top: 0.25rem; white-space: pre-wrap; }
+      .log-note { color: #8ab4f8; margin-top: 0.25rem; white-space: pre-wrap; }
     </style>
   </head>
   <body>
@@ -572,9 +605,11 @@ function adminHtml(
     </header>
     <main>
       <section>
-        ${warning}${kvBanner}
+        ${warning}${kvBanner}${readonlyBanner}
+        <div id="status" class="status" hidden></div>
         <div class="row">
           <button id="reload">Reload</button>
+          <button id="validate">Validate</button>
           <button id="publish" ${flags.uiReadonly ? "disabled" : ""}>Publish</button>
           <button id="invalidate" ${flags.uiReadonly ? "disabled" : ""}>Invalidate cache</button>
         </div>
@@ -599,6 +634,38 @@ function adminHtml(
       }
       const token = queryToken || '';
       const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+      const statusEl = document.getElementById('status');
+      function clearStatus() {
+        if (!statusEl) return;
+        statusEl.textContent = '';
+        statusEl.className = 'status';
+        statusEl.hidden = true;
+      }
+      function setStatus(type, message) {
+        if (!statusEl) return;
+        statusEl.textContent = message;
+        statusEl.className = 'status ' + type;
+        statusEl.hidden = false;
+      }
+      function handleError(err) {
+        const message = err && err.message ? err.message : String(err);
+        setStatus('error', message);
+      }
+      function readJson(id, label) {
+        const el = document.getElementById(id);
+        if (!el) {
+          throw new Error(label + ' field not found');
+        }
+        const value = 'value' in el ? el.value : el.textContent;
+        if (typeof value !== 'string') {
+          throw new Error(label + ' value is not readable');
+        }
+        try {
+          return JSON.parse(value);
+        } catch (error) {
+          throw new Error('Invalid JSON in ' + label + ': ' + (error && error.message ? error.message : error));
+        }
+      }
       async function api(path, options = {}) {
         const res = await fetch(path, {
           ...options,
@@ -631,25 +698,85 @@ function adminHtml(
         (audit || []).forEach(item => {
           const div = document.createElement('div');
           div.className = 'log-item';
-          div.textContent = '[' + item.ts + '] ' + item.actor + ' — ' + item.action;
+          const header = document.createElement('div');
+          header.className = 'log-header';
+          const summary = document.createElement('span');
+          summary.textContent = '[' + item.ts + '] ' + item.actor + ' — ' + item.action;
+          header.appendChild(summary);
+          if (typeof item.diffBytes === 'number' && !Number.isNaN(item.diffBytes)) {
+            const diff = document.createElement('span');
+            let cls = 'diff neutral';
+            let sign = '±';
+            if (item.diffBytes > 0) {
+              cls = 'diff positive';
+              sign = '+';
+            } else if (item.diffBytes < 0) {
+              cls = 'diff negative';
+              sign = '-';
+            }
+            diff.className = cls;
+            diff.textContent = sign + Math.abs(item.diffBytes) + ' B';
+            header.appendChild(diff);
+          }
+          div.appendChild(header);
+          if (item.error) {
+            const errorEl = document.createElement('div');
+            errorEl.className = 'log-error';
+            errorEl.textContent = item.error;
+            div.appendChild(errorEl);
+          }
+          if (item.note) {
+            const noteEl = document.createElement('div');
+            noteEl.className = 'log-note';
+            noteEl.textContent = item.note;
+            div.appendChild(noteEl);
+          }
           auditEl.appendChild(div);
         });
       }
-      document.getElementById('reload').addEventListener('click', () => loadAll().catch(err => alert(err.message)));
+      document.getElementById('reload').addEventListener('click', () => {
+        clearStatus();
+        loadAll().catch(handleError);
+      });
+      document.getElementById('validate').addEventListener('click', () => {
+        clearStatus();
+        let routes;
+        try {
+          routes = readJson('routes', 'Routes');
+        } catch (err) {
+          handleError(err);
+          return;
+        }
+        api('/api/routes/validate', { method: 'POST', body: JSON.stringify({ routes }) })
+          .then(() => setStatus('success', 'Routes are valid.'))
+          .catch(handleError);
+      });
       document.getElementById('invalidate').addEventListener('click', () => {
-        api('/api/cache/invalidate', { method: 'POST' }).then(() => alert('Cache invalidated')).catch(err => alert(err.message));
+        clearStatus();
+        api('/api/cache/invalidate', { method: 'POST' })
+          .then(() => setStatus('success', 'Cache invalidated.'))
+          .catch(handleError);
       });
       document.getElementById('publish').addEventListener('click', () => {
-        const routes = document.getElementById('routes').value;
-        const flags = document.getElementById('flags').value;
+        clearStatus();
+        let routes;
+        let flags;
+        try {
+          routes = readJson('routes', 'Routes');
+          flags = readJson('flags', 'Flags');
+        } catch (err) {
+          handleError(err);
+          return;
+        }
         Promise.all([
-          api('/api/routes', { method: 'PUT', body: JSON.stringify({ routes: JSON.parse(routes) }) }),
-          api('/api/flags', { method: 'PUT', body: JSON.stringify({ flags: JSON.parse(flags) }) })
+          api('/api/routes', { method: 'PUT', body: JSON.stringify({ routes }) }),
+          api('/api/flags', { method: 'PUT', body: JSON.stringify({ flags }) })
         ])
-          .then(() => loadAll())
-          .catch(err => alert(err.message));
+          .then(() => loadAll().then(() => setStatus('success', 'Changes published.')).catch(handleError))
+          .catch(handleError);
       });
-      loadAll().catch(err => alert(err.message));
+      clearStatus();
+      loadAll().catch(handleError);
     </script>
   </body>
 </html>`;
