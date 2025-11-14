@@ -92,6 +92,6 @@ fs.writeFileSync(path.join(outDir, 'flags.json'), JSON.stringify(flags, null, 2)
 fs.writeFileSync(path.join(outDir, 'metadata.json'), JSON.stringify(metadata, null, 2));
 NODE
 
-npx wrangler kv:key put --binding "$BINDING_NAME" CONFIG/routes --path "$TMP_DIR/routes.json"
-npx wrangler kv:key put --binding "$BINDING_NAME" CONFIG/flags --path "$TMP_DIR/flags.json"
-npx wrangler kv:key put --binding "$BINDING_NAME" CONFIG/metadata --path "$TMP_DIR/metadata.json"
+npx wrangler kv key put --binding "$BINDING_NAME" CONFIG/routes --path "$TMP_DIR/routes.json"
+npx wrangler kv key put --binding "$BINDING_NAME" CONFIG/flags --path "$TMP_DIR/flags.json"
+npx wrangler kv key put --binding "$BINDING_NAME" CONFIG/metadata --path "$TMP_DIR/metadata.json"
