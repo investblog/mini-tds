@@ -166,11 +166,11 @@ The Worker runs at `http://127.0.0.1:8787`. Change the `User-Agent` or
    behalf.
 2. **Provision KV namespaces**
    ```bash
-   npx wrangler kv:namespace create CONFIG
-   npx wrangler kv:namespace create AUDIT
+   npx wrangler kv:namespace create --namespace mini-tds-config --binding CONFIG
+   npx wrangler kv:namespace create --namespace mini-tds-audit --binding AUDIT
    ```
-   Copy the generated IDs into `wrangler.toml` under the `[[kv_namespaces]]`
-   sections.
+   Feel free to tweak the namespace names, but keep them distinct. Copy the
+   generated IDs into `wrangler.toml` under the `[[kv_namespaces]]` sections.
 3. **Configure the admin secret**
    ```bash
    npx wrangler secret put ADMIN_TOKEN
