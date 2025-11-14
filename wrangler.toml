@@ -7,7 +7,13 @@ compatibility_date = "2024-11-01"
 #   { pattern = "example.com/*", zone_name = "example.com" }
 # ]
 
-# Если нужен KV для дополнительных конфигов — раскомментируйте и пропишите свой namespace.
-# kv_namespaces = [
-#   { binding = "CONFIG", id = "" }
-# ]
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "<YOUR_CONFIG_NAMESPACE_ID>"
+
+[[kv_namespaces]]
+binding = "AUDIT"
+id = "<YOUR_AUDIT_NAMESPACE_ID>"
+
+# Перед деплоем создайте секрет с админ-токеном:
+#   npx wrangler secret put ADMIN_TOKEN
