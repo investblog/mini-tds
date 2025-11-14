@@ -113,6 +113,15 @@ Two action types are supported:
 
 Set `enabled` to `false` to skip a rule without removing it.
 
+The repository ships with a single default rule that targets Russian mobile
+traffic under `/casino/*` and explicitly excludes bots. Crawlers therefore see
+the untouched origin instead of a placeholder page. Review and adjust
+`config/routes.json` before your first deploy so that the defaults match your
+initial campaign needs.
+
+See the [Route configuration guide](docs/routes-guide.md) for a longer walk
+through, including ordering tips and sample scenarios.
+
 ### Flags
 
 Flags are stored under `CONFIG/flags` and follow this structure:

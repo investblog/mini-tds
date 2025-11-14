@@ -10,8 +10,12 @@ few configuration clicks.
 1. Fork the `mini-tds` repository into your own GitHub account (or create a new
    private copy).
 2. Review `config/routes.json` and update the default rules to match the initial
-   behavior you want after the Worker boots for the first time. You can always
-   change them later from the admin UI.
+   behavior you want after the Worker boots for the first time. The repository
+   now ships with a single `/casino/*` redirect that targets Russian mobile
+   visitors and skips bots, so crawlers stay on the origin. Adjust or replace the
+   rule before deploying if your first campaign needs to behave differently. You
+   can always change the configuration later from the admin UI. For more tips
+   see the [Route configuration guide](routes-guide.md).
 
 ## 2. Deploy the Worker from Git
 
