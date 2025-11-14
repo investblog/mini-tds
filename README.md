@@ -10,6 +10,9 @@ KV, keeps an in-memory cache with TTL, and exposes a protected HTTP API plus a s
 - **Bootstrap from repo defaults.** On the first request the Worker copies
   `config/routes.json` (and default flags) into the `CONFIG` KV namespace and writes
   an audit entry to the `AUDIT` namespace.
+- **Out-of-the-box fallback.** Without KV bindings the Worker serves the embedded
+  routes in read-only mode, keeps the admin UI disabled for mutations, and shows a
+  setup banner so you can attach bindings later.
 - **Hot reload with cache.** Configuration is read from KV on demand and cached in
   memory for `flags.cacheTtlMs` (defaults to 60 s). Cache can be invalidated through
   the API or UI.
@@ -183,6 +186,22 @@ The Worker runs at `http://127.0.0.1:8787`. Change the `User-Agent` or
    Use `npx wrangler tail` to monitor requests in real time and confirm that your
    redirect rules behave as expected. Adjust `config/routes.json` and redeploy as
    needed.
+
+### Attaching bindings in Cloudflare Dashboard
+
+If you deploy the Worker from the Dashboard (or want to add bindings after the
+fact) you do not need to redeploy:
+
+1. Open **Workers & Pages → _Your worker_ → Settings → Bindings**.
+2. Under **KV Namespace Bindings**, click **Add**, set **Binding name** to
+   `CONFIG`, and create or select a namespace. Repeat for the `AUDIT` binding.
+3. Under **Secrets**, click **Add**, set **Variable name** to `ADMIN_TOKEN`, and
+   supply your admin token value.
+
+As soon as the bindings are attached Cloudflare updates the environment
+automatically. Refresh `/admin?token=…`: the Worker will bootstrap KV with the
+embedded defaults (if it hasn't already) and unlock full CRUD functionality in
+the admin UI.
 
 ## Admin API reference
 
